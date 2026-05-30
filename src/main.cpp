@@ -43,7 +43,13 @@ uint32_t prevMillis = 0;
 
 TFT_eSPI tft = TFT_eSPI();
 TFT_eSprite buffer = TFT_eSprite(&tft);
-TFT_eSprite nixieSprite = TFT_eSprite(&tft); 
+TFT_eSprite nixieSprite = TFT_eSprite(&tft);
+
+String marqueeText = "Nixie Drift - a retro-futuristic time keeping device by stevious. Enjoy the cosmic journey through time and space!   ";
+float marqueeX = 0.0f;
+const float marqueeSpeed = 60.0f; // pixels per second
+const uint16_t marqueeFont = 2;
+const uint16_t marqueeBottomMargin = 6;
 
 void resetStar(int index, bool init) {
   stars[index].x  = random(-displayConfig.WIDTH, displayConfig.WIDTH);
@@ -149,6 +155,29 @@ void renderFPS(TFT_eSprite* buffer, uint32_t const fps) {
   buffer->drawRightString(std::format("FPS: {}", fps).c_str(), 318, 0, 1);
 }
 
+void renderMarquee(TFT_eSprite* buffer, const float elapsedMillis) {
+  buffer->setTextSize(3);
+  buffer->setTextDatum(TL_DATUM);
+
+  int16_t textWidth = buffer->textWidth(marqueeText.c_str(), marqueeFont);
+  marqueeX -= marqueeSpeed * (elapsedMillis / 1000.0f);
+
+  if (marqueeX + textWidth < 0) {
+    marqueeX = displayConfig.WIDTH;
+  }
+
+  int16_t y = displayConfig.HEIGHT - tft.fontHeight(marqueeFont) * 3 - marqueeBottomMargin;
+  
+  buffer->setTextColor(tft.color565(255, 100, 0));
+  buffer->drawString(marqueeText, static_cast<int16_t>(marqueeX - 3), y, marqueeFont);
+  buffer->drawString(marqueeText, static_cast<int16_t>(marqueeX + 3), y, marqueeFont);
+  buffer->drawString(marqueeText, static_cast<int16_t>(marqueeX), y - 3, marqueeFont);
+  buffer->drawString(marqueeText, static_cast<int16_t>(marqueeX), y + 3, marqueeFont);
+
+  buffer->setTextColor(TFT_WHITE);
+  buffer->drawString(marqueeText, static_cast<int16_t>(marqueeX), y, marqueeFont);
+}
+
 void setup() {
   tft.init();
   tft.setRotation(1); // Landscape mode
@@ -160,6 +189,8 @@ void setup() {
   setupBuffer();
   setupNixieSprite();
   setupStars();
+
+  marqueeX = displayConfig.WIDTH; // Start marquee off-screen to the right
 }
 
 void loop() {  
@@ -170,6 +201,7 @@ void loop() {
   buffer.fillSprite(TFT_BLACK);
   renderStars(&buffer, elapsedMillis);  
   renderNixies(&buffer);
+  renderMarquee(&buffer, elapsedMillis);
 
   // Update FPS every second
   if (config.showFPS && (now - fpsTracking.lastFpsTime >= 1000)) { // Update every 1 second
