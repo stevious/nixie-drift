@@ -28,13 +28,14 @@ struct Star {
 };
 
 struct Configuration {
-  bool showFPS = false;
+  bool showFPS = true;
 } config;
 
-// FPS tracking variables
-uint32_t frameCount = 0;
-uint32_t lastFpsTime = 0;
-uint32_t currentFps = 0;
+struct FPSTracking {
+  uint32_t frameCount = 0;
+  uint32_t lastFpsTime = 0;
+  uint32_t currentFPS = 0;
+} fpsTracking;
 
 Star* stars = nullptr;
 
@@ -42,11 +43,7 @@ uint32_t prevMillis = 0;
 
 TFT_eSPI tft = TFT_eSPI();
 TFT_eSprite buffer = TFT_eSprite(&tft);
-TFT_eSprite nixieSprite = TFT_eSprite(&tft);
-TFT_eSprite nixieSpriteTemplate = TFT_eSprite(&tft); 
-
-// TODO: Get rid of this flag
-bool bufferReady = false;
+TFT_eSprite nixieSprite = TFT_eSprite(&tft); 
 
 void resetStar(int index, bool init) {
   stars[index].x  = random(-displayConfig.WIDTH, displayConfig.WIDTH);
@@ -57,44 +54,25 @@ void resetStar(int index, bool init) {
 }
 
 void setupBuffer() {
-  tft.printf("Provisioning 16-bit display buffer... ", displayConfig.WIDTH, displayConfig.HEIGHT);
-  buffer.setColorDepth(16);
-  bufferReady = (buffer.createSprite(displayConfig.WIDTH, displayConfig.HEIGHT) != nullptr);
-  if(!bufferReady) {
-    tft.printf("failed!\nProvisioning 8-bit display buffer... ");
-    buffer.setColorDepth(8);
-    bufferReady = (buffer.createSprite(displayConfig.WIDTH, displayConfig.HEIGHT) != nullptr);
-  }
-  if(!bufferReady) {
+  tft.printf("Provisioning 8-bit display buffer... ");
+  buffer.setColorDepth(8);
+  if(buffer.createSprite(displayConfig.WIDTH, displayConfig.HEIGHT) == nullptr) {
     tft.printf("failed!\n");
     exit(-1); // Epic fail! Time to die...
   }
   else {
-    tft.printf("done!\n");
+    tft.printf("success!\n");   
   }
 }
 
 void setupNixieSprite() {
   nixieSprite.setColorDepth(16);
   if(nixieSprite.createSprite(NIXIE_SMALL_WIDTH, NIXIE_SMALL_HEIGHT) == nullptr) {
-    tft.printf("Failed to create nixie sprite!\n");
-    exit(-1); // Epic fail! Time to die...
-  }
-  else {
-    // Set some default values
-    nixieSprite.setTextColor(tft.color565(255, 120, 0)); // Nixie orange
-    nixieSprite.setTextSize(1);
-    nixieSprite.setTextDatum(MC_DATUM); // Middle center
-    tft.printf("Nixie sprite created successfully!\n");
-  }
-
-  nixieSpriteTemplate.setColorDepth(16);
-  if(nixieSpriteTemplate.createSprite(NIXIE_SMALL_WIDTH, NIXIE_SMALL_HEIGHT) == nullptr) {
     tft.printf("Failed to create nixie sprite template!\n");
     exit(-1); // Epic fail! Time to die...
   }
   else {
-    nixieSpriteTemplate.pushImage(0, 0, NIXIE_SMALL_WIDTH, NIXIE_SMALL_HEIGHT, nixie_small);
+    nixieSprite.pushImage(0, 0, NIXIE_SMALL_WIDTH, NIXIE_SMALL_HEIGHT, nixie_small);
     tft.printf("Nixie sprite template created successfully!\n");
   }
 }
@@ -146,15 +124,14 @@ void renderNixie(TFT_eSprite* buffer, uint16_t x, uint16_t y, const char* value)
   const uint16_t text_x_offset = NIXIE_SMALL_WIDTH >> 1;
   const uint16_t text_y_offset = 84;
 
-  // -- Draw the digit to the sprite --
-  nixieSprite.fillSprite(TFT_BLACK); // Clear the sprite before rendering the new digit
-  nixieSprite.drawString(value,  text_x_offset, text_y_offset, font_number);
+  buffer->setTextColor(tft.color565(255, 120, 0)); // Nixie orange
+  buffer->setTextSize(1);
+  buffer->setTextDatum(MC_DATUM); // Middle center
+  
+  buffer->drawString(value, x + text_x_offset, y+ text_y_offset, font_number);
 
   // -- Draw the nixie image to the sprite --
-  nixieSpriteTemplate.pushToSprite(&nixieSprite, 0, 0, TFT_BLACK); // Draw the nixie outline, using black as the transparent colour key
-
-  // -- Push the nixie sprite to the buffer, using black as the transparent colour key --
-  nixieSprite.pushToSprite(buffer, x, y, TFT_BLACK);  
+  nixieSprite.pushToSprite(buffer, x, y, TFT_BLACK); // Draw the nixie outline, using black as the transparent colour key
 }
 
 // TODO: Refactor renderNixies to take a time struct and render the appropriate numbers.
@@ -186,7 +163,7 @@ void setup() {
 }
 
 void loop() {  
-  frameCount++;
+  fpsTracking.frameCount++;
   uint32_t now = millis();
   float elapsedMillis = now - prevMillis;
 
@@ -195,12 +172,14 @@ void loop() {
   renderNixies(&buffer);
 
   // Update FPS every second
-  if (now - lastFpsTime >= 1000) { // Update every 1 second
-    currentFps = frameCount;
-    frameCount = 0;
-    lastFpsTime = now;
+  if (config.showFPS && (now - fpsTracking.lastFpsTime >= 1000)) { // Update every 1 second
+    fpsTracking.currentFPS = fpsTracking.frameCount;
+    fpsTracking.frameCount = 0;
+    fpsTracking.lastFpsTime = now;
   }
-  renderFPS(&buffer, currentFps);
+  if (config.showFPS) {
+    renderFPS(&buffer, fpsTracking.currentFPS);
+  }
 
   buffer.pushSprite(0, 0);
   prevMillis = now;
