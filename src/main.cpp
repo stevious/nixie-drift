@@ -1,6 +1,5 @@
 #include <Arduino.h>
 #include <TFT_eSPI.h>
-#include <format>
 #include <vector>
 
 #include "nixie_small.h"
@@ -282,7 +281,11 @@ void renderFPS(TFT_eSprite* buffer, uint32_t const fps) {
   buffer->setTextColor(TFT_WHITE);
   buffer->setTextFont(1);
   buffer->setTextSize(1);
-  buffer->drawRightString(std::format("FPS: {}", fps).c_str(), 318, 0, 1);
+
+  char sbuffer[16];
+  snprintf(sbuffer, sizeof(sbuffer), "FPS: %lu", fps);
+
+  buffer->drawRightString(sbuffer, 318, 0, 1);
 }
 
 // I didn't end up using this function, but I will keep it here for the LOLs.
@@ -430,6 +433,7 @@ void setup() {
   
   tft.setCursor(0, 10);
   tft.printf("Nixie Drift v%s by Stevious is booting.\n\n", VERSION);
+  tft.printf("ESP-IDF Version: %s\n", esp_get_idf_version());
   
   setupBuffer();
   setupNixieSprites();
