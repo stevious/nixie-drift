@@ -67,7 +67,7 @@ uint32_t prevMillis = 0;
 
 TFT_eSPI tft = TFT_eSPI();
 TFT_eSprite buffer = TFT_eSprite(&tft);
-TFT_eSprite nixieSprite = TFT_eSprite(&tft);
+TFT_eSprite nixieSpriteTemplate = TFT_eSprite(&tft);
 TFT_eSprite nixieSprites[4] = { TFT_eSprite(&tft), TFT_eSprite(&tft), TFT_eSprite(&tft), TFT_eSprite(&tft) };
 
 // -- HELPER FUNCTIONS --
@@ -169,14 +169,14 @@ void setupBuffer() {
   }
 }
 
-void setupNixieSprite() {
-  nixieSprite.setColorDepth(16);
-  if(nixieSprite.createSprite(NIXIE_SMALL_WIDTH, NIXIE_SMALL_HEIGHT) == nullptr) {
+void setupNixieSprites() {
+  nixieSpriteTemplate.setColorDepth(16);
+  if(nixieSpriteTemplate.createSprite(NIXIE_SMALL_WIDTH, NIXIE_SMALL_HEIGHT) == nullptr) {
     tft.printf("Failed to create nixie sprite template!\n");
     exit(-1); // Epic fail! Time to die...
   }
   else {
-    nixieSprite.pushImage(0, 0, NIXIE_SMALL_WIDTH, NIXIE_SMALL_HEIGHT, nixie_small);
+    nixieSpriteTemplate.pushImage(0, 0, NIXIE_SMALL_WIDTH, NIXIE_SMALL_HEIGHT, nixie_small);
     tft.printf("Nixie sprite template created successfully!\n");
   }
 
@@ -236,7 +236,13 @@ void renderStars(TFT_eSprite* buffer, const float elapsedMillis) {
   }
 }
 
-void renderNixie(TFT_eSprite* buffer, uint16_t x, uint16_t y, const char* value) {
+void renderNixie(TFT_eSprite* buffer, uint16_t nixie_number, uint16_t x, uint16_t y) {
+  // Drawing a sprite with transparency is expensive, so we will cheat and draw each nixie with a black background. Hopefully the lack of transparency won't be too noticeable.
+  // This gives us quite a significant boost in framerate, so I can use those free clock cycles for other things :)
+  nixieSprites[nixie_number].pushToSprite(buffer, x, y);
+}
+
+void prerenderNixie(TFT_eSprite* buffer, const char* value) {
   const uint16_t font_number = 8; // Font 8 is a built in 16x32 pixel font that fits nicely within the nixie sprite.
   const uint16_t text_x_offset = NIXIE_SMALL_WIDTH >> 1;
   const uint16_t text_y_offset = 78;
@@ -245,20 +251,27 @@ void renderNixie(TFT_eSprite* buffer, uint16_t x, uint16_t y, const char* value)
   buffer->setTextSize(1);
   buffer->setTextDatum(MC_DATUM); // Middle center
   
-  drawGlowingString(buffer, value, x + text_x_offset, y + text_y_offset, font_number, tft.color565(255, 120, 0), tft.color565(128, 0, 0), 5);
-  //buffer->drawString(value, x + text_x_offset, y+ text_y_offset, font_number);
+  // Write the text into the sprite
+  drawGlowingString(buffer, value, text_x_offset, text_y_offset, font_number, tft.color565(255, 120, 0), tft.color565(128, 0, 0), 5);
   
   // -- Draw the nixie image to the sprite --
-  nixieSprite.pushToSprite(buffer, x, y, TFT_BLACK); // Draw the nixie outline, using black as the transparent colour key  
+  nixieSpriteTemplate.pushToSprite(buffer, 0, 0, TFT_BLACK); // Draw the nixie outline, using black as the transparent colour key  
+}
+
+void prerenderNixies(const char* value1, const char* value2, const char* value3, const char* value4) {
+  prerenderNixie(&nixieSprites[0], value1);
+  prerenderNixie(&nixieSprites[1], value2);
+  prerenderNixie(&nixieSprites[2], value3);
+  prerenderNixie(&nixieSprites[3], value4);
 }
 
 // TODO: Refactor renderNixies to take a time struct and render the appropriate numbers.
 void renderNixies(TFT_eSprite* buffer) {
   const uint16_t y_offset = 20;
-  renderNixie(buffer, 0, y_offset, "1");
-  renderNixie(buffer, 75, y_offset, "2");
-  renderNixie(buffer, 170, y_offset, "3");
-  renderNixie(buffer, 245, y_offset, "4");
+  renderNixie(buffer, 0, 0, y_offset);
+  renderNixie(buffer, 1, 75, y_offset);
+  renderNixie(buffer, 2, 170, y_offset);
+  renderNixie(buffer, 3, 245, y_offset);
 }
 
 // Nothing fancy, just a simple FPS counter in the top right corner. It will update once per second.
@@ -396,7 +409,8 @@ void setup() {
   tft.printf("Nixie Drift v%s by Stevious is booting.\n\n", VERSION);
   
   setupBuffer();
-  setupNixieSprite();
+  setupNixieSprites();
+  prerenderNixies("1", "2", "3", "4"); 
   setupStars();
 
   scrollingMarquee.x = displayConfig.WIDTH; // Start marquee off-screen to the right
