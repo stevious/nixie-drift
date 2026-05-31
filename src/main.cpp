@@ -72,24 +72,25 @@ TFT_eSprite nixieSprites[4] = { TFT_eSprite(&tft), TFT_eSprite(&tft), TFT_eSprit
 
 // -- HELPER FUNCTIONS --
 
-void drawGlowingString(TFT_eSprite* buffer, const String& text, int16_t x, int16_t y, uint16_t font, uint16_t textColor, uint16_t glowColor, uint16_t glowStrength) {  
+void drawGlowingString(TFT_eSprite* buffer, const String& text, uint16_t x, uint16_t y, uint16_t textColor, uint16_t glowColor, uint16_t glowStrength) {  
+  // Be sure to set the appropriate font and text size on the buffer before calling this function.
   buffer->setTextColor(glowColor);
   
   // Draw glow layers
   for (uint16_t i = glowStrength; i > 0; --i) {
-    buffer->drawString(text, x - i, y - i, font);
-    buffer->drawString(text, x + i, y - i, font);
-    buffer->drawString(text, x - i, y + i, font);
-    buffer->drawString(text, x + i, y + i, font);
+    buffer->drawString(text, x - i, y - i);
+    buffer->drawString(text, x + i, y - i);
+    buffer->drawString(text, x - i, y + i);
+    buffer->drawString(text, x + i, y + i);
   }
   
   // Draw main text
   buffer->setTextColor(textColor);
-  buffer->drawString(text, x, y, font);
+  buffer->drawString(text, x, y);
 }
 
 // Split text into lines that respect word boundaries and fit within maxWidth
-std::vector<String> wrapTextToLines(const String& text, TFT_eSprite* buffer, uint16_t maxWidth, uint16_t font) {
+std::vector<String> wrapTextToLines(const String& text, TFT_eSprite* buffer, uint16_t maxWidth) {
   std::vector<String> lines;
   String remaining = text;
   
@@ -100,7 +101,7 @@ std::vector<String> wrapTextToLines(const String& text, TFT_eSprite* buffer, uin
     
     for (int i = 0; i < remaining.length(); ++i) {
       String testLine = remaining.substring(0, i + 1);
-      int width = buffer->textWidth(testLine.c_str(), font);
+      int width = buffer->textWidth(testLine.c_str());
       
       if (width > maxWidth) {
         // Exceeded width, use previous valid line
@@ -243,15 +244,14 @@ void renderNixie(TFT_eSprite* buffer, uint16_t nixie_number, uint16_t x, uint16_
 }
 
 void prerenderNixie(TFT_eSprite* buffer, const char* value) {
-  const uint16_t font_number = 8; // Font 8 is a built in 16x32 pixel font that fits nicely within the nixie sprite.
-  const uint16_t text_x_offset = NIXIE_SMALL_WIDTH >> 1;
-  const uint16_t text_y_offset = 78;
-
+  buffer->setTextFont(8); // Font 8 is a built in 16x32 pixel font that fits nicely within the nixie sprite.
   buffer->setTextSize(1);
-  buffer->setTextDatum(MC_DATUM); // Middle center
-  
+
+  const uint16_t text_x_offset = (NIXIE_SMALL_WIDTH - buffer->textWidth(value)) / 2; // Center the text within the sprite
+  const uint16_t text_y_offset = 44; // Manually measured this from nixie_small.png
+
   // Write the text into the sprite
-  drawGlowingString(buffer, value, text_x_offset, text_y_offset, font_number, tft.color565(255, 120, 0), tft.color565(128, 0, 0), 5);
+  drawGlowingString(buffer, value, text_x_offset, text_y_offset, tft.color565(255, 120, 0), tft.color565(128, 0, 0), 5);
   
   // -- Draw the nixie image to the sprite --
   nixieSpriteTemplate.pushToSprite(buffer, 0, 0, TFT_BLACK); // Draw the nixie outline, using black as the transparent colour key  
@@ -276,6 +276,7 @@ void renderNixies(TFT_eSprite* buffer) {
 // Nothing fancy, just a simple FPS counter in the top right corner. It will update once per second.
 void renderFPS(TFT_eSprite* buffer, uint32_t const fps) {
   buffer->setTextColor(TFT_WHITE);
+  buffer->setTextFont(1);
   buffer->setTextSize(1);
   buffer->drawRightString(std::format("FPS: {}", fps).c_str(), 318, 0, 1);
 }
@@ -283,7 +284,7 @@ void renderFPS(TFT_eSprite* buffer, uint32_t const fps) {
 // I didn't end up using this function, but I will keep it here for the LOLs.
 void renderScrollingMarquee(TFT_eSprite* buffer, const float elapsedMillis) {
   buffer->setTextSize(3);
-  buffer->setTextDatum(TL_DATUM);
+  buffer->setTextFont(1);
 
   int16_t textWidth = buffer->textWidth(scrollingMarquee.text.c_str(), scrollingMarquee.font);
   scrollingMarquee.x -= scrollingMarquee.speed * (elapsedMillis / 1000.0f);
@@ -295,34 +296,32 @@ void renderScrollingMarquee(TFT_eSprite* buffer, const float elapsedMillis) {
   int16_t y = displayConfig.HEIGHT - tft.fontHeight(scrollingMarquee.font) * 3 - scrollingMarquee.bottomMargin;
   
   buffer->setTextColor(tft.color565(255, 100, 0));
-  drawGlowingString(buffer, scrollingMarquee.text, static_cast<int16_t>(scrollingMarquee.x), y, scrollingMarquee.font, tft.color565(255, 100, 0), tft.color565(255, 50, 0), 3);
+  drawGlowingString(buffer, scrollingMarquee.text, static_cast<int16_t>(scrollingMarquee.x), y, tft.color565(255, 100, 0), tft.color565(255, 50, 0), 3);
 }
 
 void renderTerminalMarquee(TFT_eSprite* buffer, const uint32_t now) {
+  // Set the text defaults
+  // buffer->setTextFont(1);
+  buffer->setFreeFont(&FreeMonoBold9pt7b); // This is a nice monospaced font that fits the retro terminal aesthetic. It's a bit more expensive to render than the built in fonts, but it is worth it for the look.
+  buffer->setTextSize(1);
+  
   // Static cache for wrapped lines (recalculate only when text changes)
   static std::vector<String> wrappedLines;
   static String lastText = "";
   
-  const uint16_t terminalFont = 1;    // Is this the font I want?
-  const uint16_t terminalFontSize = 2;
   const uint16_t terminalTextColor = tft.color565(0, 200, 0);
   const uint16_t terminalTextGlowColor = tft.color565(0, 100, 0);
   const uint16_t displayWidth = 310;  // Leave some margin (need to park the cursor somewhere!)
 
-  // Let's set some default text properties for the terminal marquee
-  buffer->setTextDatum(TL_DATUM);
-  buffer->setTextSize(terminalFontSize);
-
-  const uint16_t terminalY = displayConfig.HEIGHT - tft.fontHeight(terminalFont) - 8;
-  const uint16_t charWidth = buffer->textWidth("M", terminalFont); // Mmmmmm, m-dash! <.<
-
+  const uint16_t terminalY = displayConfig.HEIGHT - tft.fontHeight() - 8;
+  
     // Dynamically calculate cursor size based on font metrics.
-  const uint16_t blockCursorWidth = charWidth;
-  const uint16_t blockCursorHeight = tft.fontHeight(terminalFont) * terminalFontSize;
+  const uint16_t blockCursorWidth = buffer->textWidth("M"); // Mmmmmm, m-dash! <.<
+  const uint16_t blockCursorHeight = buffer->fontHeight();
 
   // Recalculate line wrapping if text changed
   if (terminalMarquee.fullText != lastText) {
-    wrappedLines = wrapTextToLines(terminalMarquee.fullText, buffer, displayWidth, terminalFont);
+    wrappedLines = wrapTextToLines(terminalMarquee.fullText, buffer, displayWidth);
     lastText = terminalMarquee.fullText;
     terminalMarquee.charIndex = 0;
     terminalMarquee.lineIndex = 0;
@@ -357,11 +356,11 @@ void renderTerminalMarquee(TFT_eSprite* buffer, const uint32_t now) {
       terminalMarquee.currentLine = wrappedLines[terminalMarquee.lineIndex];
     } else {
       // Still waiting, draw complete line      
-      drawGlowingString(buffer, terminalMarquee.currentLine, 5, terminalY, terminalFont, terminalTextColor, terminalTextGlowColor, 3);      
+      drawGlowingString(buffer, terminalMarquee.currentLine, 5, terminalY, terminalTextColor, terminalTextGlowColor, 1);      
 
       // -- Draw blinking cursor (note the duplication of this below) --
       if (terminalMarquee.cursorVisible) {
-        uint16_t cursorX = 5 + buffer->textWidth(terminalMarquee.currentLine.c_str(), terminalFont);
+        uint16_t cursorX = 5 + buffer->textWidth(terminalMarquee.currentLine.c_str());
         buffer->fillRect(cursorX, terminalY, blockCursorWidth, blockCursorHeight, tft.color565(0, 200, 0));
       }
       return;
@@ -384,7 +383,7 @@ void renderTerminalMarquee(TFT_eSprite* buffer, const uint32_t now) {
   
   // -- Draw the visible portion of the current line --
   String visibleText = terminalMarquee.currentLine.substring(0, terminalMarquee.charIndex);
-  drawGlowingString(buffer, visibleText, 5, terminalY, terminalFont, terminalTextColor, terminalTextGlowColor, 3);
+  drawGlowingString(buffer, visibleText, 5, terminalY, terminalTextColor, terminalTextGlowColor, 1);
   
   // -- Draw blinking cursor --
   /* 
@@ -392,7 +391,7 @@ void renderTerminalMarquee(TFT_eSprite* buffer, const uint32_t now) {
     at the end of a line (e.g. make the cursor solid instead of blinking, or add a little "line complete" animation).
   */
   if (terminalMarquee.cursorVisible && terminalMarquee.charIndex <= terminalMarquee.currentLine.length()) {
-    uint16_t cursorX = 5 + buffer->textWidth(visibleText.c_str(), terminalFont);
+    uint16_t cursorX = 5 + buffer->textWidth(visibleText.c_str());
     buffer->fillRect(cursorX, terminalY, blockCursorWidth, blockCursorHeight, tft.color565(0, 200, 0));
   }
 }
