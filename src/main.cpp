@@ -38,11 +38,16 @@ struct FPSTracking {
   uint32_t currentFPS = 0;
 } fpsTracking;
 
+struct ColonState {
+  bool ascending = true;
+  const float speed = 512.0f; // Speed of the animation
+  float value = 0;
+} colonState;
+
 struct ScrollingMarquee {
   String text= "Nixie Drift - a retro-futuristic time keeping device by Stevious. Enjoy the cosmic journey through time and space!   ";
   float x;
   const float speed = 60.0f;
-  const uint16_t font = 2;
   const uint16_t bottomMargin = 6;
 } scrollingMarquee;
 
@@ -72,11 +77,10 @@ TFT_eSprite nixieSprites[4] = { TFT_eSprite(&tft), TFT_eSprite(&tft), TFT_eSprit
 
 // -- HELPER FUNCTIONS --
 
-void drawGlowingString(TFT_eSprite* buffer, const String& text, uint16_t x, uint16_t y, uint16_t textColor, uint16_t glowColor, uint16_t glowStrength) {  
+void drawGlowingString(TFT_eSprite* buffer, const String& text, int16_t x, int16_t y, uint16_t textColor, uint16_t glowColor, uint16_t glowStrength) {  
   // Be sure to set the appropriate font and text size on the buffer before calling this function.
-  buffer->setTextColor(glowColor);
-  
   // Draw glow layers
+  buffer->setTextColor(glowColor);
   for (uint16_t i = glowStrength; i > 0; --i) {
     buffer->drawString(text, x - i, y - i);
     buffer->drawString(text, x + i, y - i);
@@ -89,7 +93,7 @@ void drawGlowingString(TFT_eSprite* buffer, const String& text, uint16_t x, uint
   buffer->drawString(text, x, y);
 }
 
-// Split text into lines that respect word boundaries and fit within maxWidth
+// Split text into lines that respect word boundaries and fit within maxWidth pixels
 std::vector<String> wrapTextToLines(const String& text, TFT_eSprite* buffer, uint16_t maxWidth) {
   std::vector<String> lines;
   String remaining = text;
@@ -151,7 +155,7 @@ void initializeTerminalMarquee(const String& text) {
   terminalMarquee.waitingForLineDelay = false;
 }
 
-void resetStar(int index, bool init) {
+void resetStar(uint16_t index, bool init) {
   stars[index].x  = random(-displayConfig.WIDTH, displayConfig.WIDTH);
   stars[index].y  = random(-displayConfig.HEIGHT, displayConfig.HEIGHT);
   stars[index].z  = init ? random(50, starConfig.Z_MAX) : starConfig.Z_MAX;
@@ -222,7 +226,7 @@ void renderStars(TFT_eSprite* buffer, const float elapsedMillis) {
     // Only draw stars that are within screen boundaries
     if (sx >= 0 && sx <= displayConfig.WIDTH && sy >= 0 && sy <= displayConfig.HEIGHT) {
       // Closer star (lower Z) = brighter star
-      uint8_t brightness = (uint8_t)((starConfig.Z_MAX - stars[i].z) * 255 / starConfig.Z_MAX);
+      uint8_t brightness = static_cast<uint8_t>((starConfig.Z_MAX - stars[i].z) * 255 / starConfig.Z_MAX);
       uint16_t colour = tft.color565(brightness, brightness, brightness);
 
       // Motion trail - a side effect is that we don't draw stars on the first pass after reset (as they haven't yet moved). I am OK with this.
@@ -283,26 +287,25 @@ void renderFPS(TFT_eSprite* buffer, uint32_t const fps) {
 
 // I didn't end up using this function, but I will keep it here for the LOLs.
 void renderScrollingMarquee(TFT_eSprite* buffer, const float elapsedMillis) {
-  buffer->setTextSize(3);
+  buffer->setTextSize(1);
   buffer->setTextFont(1);
 
-  int16_t textWidth = buffer->textWidth(scrollingMarquee.text.c_str(), scrollingMarquee.font);
+  int16_t textWidth = buffer->textWidth(scrollingMarquee.text.c_str());
   scrollingMarquee.x -= scrollingMarquee.speed * (elapsedMillis / 1000.0f);
 
   if (scrollingMarquee.x + textWidth < 0) {
     scrollingMarquee.x = displayConfig.WIDTH;
   }
 
-  int16_t y = displayConfig.HEIGHT - tft.fontHeight(scrollingMarquee.font) * 3 - scrollingMarquee.bottomMargin;
+  int16_t y = displayConfig.HEIGHT - buffer->fontHeight() - scrollingMarquee.bottomMargin;
   
-  buffer->setTextColor(tft.color565(255, 100, 0));
-  drawGlowingString(buffer, scrollingMarquee.text, static_cast<int16_t>(scrollingMarquee.x), y, tft.color565(255, 100, 0), tft.color565(255, 50, 0), 3);
+  drawGlowingString(buffer, scrollingMarquee.text, static_cast<int16_t>(scrollingMarquee.x), y, tft.color565(255, 100, 0), tft.color565(255, 50, 0), 0);
 }
 
 void renderTerminalMarquee(TFT_eSprite* buffer, const uint32_t now) {
   // Set the text defaults
   // buffer->setTextFont(1);
-  buffer->setFreeFont(&FreeMonoBold9pt7b); // This is a nice monospaced font that fits the retro terminal aesthetic. It's a bit more expensive to render than the built in fonts, but it is worth it for the look.
+  buffer->setFreeFont(&FreeMono9pt7b); // This is a nice monospaced font that fits the retro terminal aesthetic. It's a bit more expensive to render than the built in fonts, but it is worth it for the look.
   buffer->setTextSize(1);
   
   // Static cache for wrapped lines (recalculate only when text changes)
@@ -396,6 +399,29 @@ void renderTerminalMarquee(TFT_eSprite* buffer, const uint32_t now) {
   }
 }
 
+void renderColon(TFT_eSprite* buffer, float elapsedMillis) {
+  // Animate the colon by making it pulse up and down in size
+  if (colonState.ascending) {
+    colonState.value += colonState.speed * (elapsedMillis / 1000.0f);
+    if (colonState.value >= 255.0f) {
+      colonState.value = 255.0f;
+      colonState.ascending = false;
+    }
+  } else {
+    colonState.value -= colonState.speed * (elapsedMillis / 1000.0f);
+    if (colonState.value <= 0.0f) {
+      colonState.value = 0.0f;
+      colonState.ascending = true;
+    }
+  }
+  
+  uint8_t glow = static_cast<uint8_t>(colonState.value);
+
+  // Draw the two dots of the colon
+  buffer->fillEllipse(160, 90, 5, 5, tft.color565(glow, glow, glow));
+  buffer->fillEllipse(160, 110, 5, 5, tft.color565(glow, glow, glow));
+}
+
 // -- Arduino setup and loop --
 void setup() {
   tft.init();
@@ -419,15 +445,15 @@ void setup() {
 void loop() {  
   ++fpsTracking.frameCount;
   uint32_t now = millis();
-  float elapsedMillis = now - prevMillis;
+  float elapsedMillis = now - prevMillis; // Time delta in milliseconds since last frame
 
-// -- Render everything to the buffer sprite --
-
+  // -- Render everything to the buffer sprite --
   buffer.fillSprite(TFT_BLACK);
   renderStars(&buffer, elapsedMillis);  
   renderNixies(&buffer);
-  renderTerminalMarquee(&buffer, now);
-  // renderMarquee(&buffer, elapsedMillis);
+  renderColon(&buffer, elapsedMillis); // Sounds rather painful :(
+  // renderTerminalMarquee(&buffer, now);
+  renderScrollingMarquee(&buffer, elapsedMillis);
 
   // Update FPS every second
   if (config.showFPS && (now - fpsTracking.lastFpsTime >= 1000)) { // Update every 1 second
@@ -439,6 +465,8 @@ void loop() {
     renderFPS(&buffer, fpsTracking.currentFPS);
   }
 
+  // -- Push the buffer to the display --
   buffer.pushSprite(0, 0);
+
   prevMillis = now;
 }
