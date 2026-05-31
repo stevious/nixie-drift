@@ -68,6 +68,7 @@ uint32_t prevMillis = 0;
 TFT_eSPI tft = TFT_eSPI();
 TFT_eSprite buffer = TFT_eSprite(&tft);
 TFT_eSprite nixieSprite = TFT_eSprite(&tft);
+TFT_eSprite nixieSprites[4] = { TFT_eSprite(&tft), TFT_eSprite(&tft), TFT_eSprite(&tft), TFT_eSprite(&tft) };
 
 // -- HELPER FUNCTIONS --
 
@@ -75,7 +76,7 @@ void drawGlowingString(TFT_eSprite* buffer, const String& text, int16_t x, int16
   buffer->setTextColor(glowColor);
   
   // Draw glow layers
-  for (int i = glowStrength; i > 0; --i) {
+  for (uint16_t i = glowStrength; i > 0; --i) {
     buffer->drawString(text, x - i, y - i, font);
     buffer->drawString(text, x + i, y - i, font);
     buffer->drawString(text, x - i, y + i, font);
@@ -178,6 +179,17 @@ void setupNixieSprite() {
     nixieSprite.pushImage(0, 0, NIXIE_SMALL_WIDTH, NIXIE_SMALL_HEIGHT, nixie_small);
     tft.printf("Nixie sprite template created successfully!\n");
   }
+
+  for(int i = 0; i < 4; ++i) {
+    nixieSprites[i].setColorDepth(16);
+    if(nixieSprites[i].createSprite(NIXIE_SMALL_WIDTH, NIXIE_SMALL_HEIGHT) == nullptr) {
+      tft.printf("Failed to create nixie sprite %d!\n", i);
+      exit(-1); // Epic fail! Time to die...
+    }
+    else {
+      tft.printf("Nixie sprite %d created successfully!\n", i);
+    }
+  }
 }
 
 void setupStars() {
@@ -227,13 +239,14 @@ void renderStars(TFT_eSprite* buffer, const float elapsedMillis) {
 void renderNixie(TFT_eSprite* buffer, uint16_t x, uint16_t y, const char* value) {
   const uint16_t font_number = 8; // Font 8 is a built in 16x32 pixel font that fits nicely within the nixie sprite.
   const uint16_t text_x_offset = NIXIE_SMALL_WIDTH >> 1;
-  const uint16_t text_y_offset = 84;
+  const uint16_t text_y_offset = 78;
 
-  buffer->setTextColor(tft.color565(255, 120, 0)); // Nixie orange
+  // buffer->setTextColor(tft.color565(255, 120, 0)); // Nixie orange
   buffer->setTextSize(1);
   buffer->setTextDatum(MC_DATUM); // Middle center
   
-  buffer->drawString(value, x + text_x_offset, y+ text_y_offset, font_number);
+  drawGlowingString(buffer, value, x + text_x_offset, y + text_y_offset, font_number, tft.color565(255, 120, 0), tft.color565(128, 0, 0), 5);
+  //buffer->drawString(value, x + text_x_offset, y+ text_y_offset, font_number);
   
   // -- Draw the nixie image to the sprite --
   nixieSprite.pushToSprite(buffer, x, y, TFT_BLACK); // Draw the nixie outline, using black as the transparent colour key  
