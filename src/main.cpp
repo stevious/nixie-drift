@@ -247,7 +247,6 @@ void prerenderNixie(TFT_eSprite* buffer, const char* value) {
   const uint16_t text_x_offset = NIXIE_SMALL_WIDTH >> 1;
   const uint16_t text_y_offset = 78;
 
-  // buffer->setTextColor(tft.color565(255, 120, 0)); // Nixie orange
   buffer->setTextSize(1);
   buffer->setTextDatum(MC_DATUM); // Middle center
   
@@ -401,8 +400,7 @@ void renderTerminalMarquee(TFT_eSprite* buffer, const uint32_t now) {
 // -- Arduino setup and loop --
 void setup() {
   tft.init();
-  tft.setRotation(1); // Landscape mode
-  tft.dmaWait();     // Ensure any DMA operations complete before filling screen
+  tft.setRotation(1); // Landscape mode  
   tft.fillScreen(TFT_BLACK);
   
   tft.setCursor(0, 10);
@@ -424,6 +422,8 @@ void loop() {
   uint32_t now = millis();
   float elapsedMillis = now - prevMillis;
 
+// -- Render everything to the buffer sprite --
+
   buffer.fillSprite(TFT_BLACK);
   renderStars(&buffer, elapsedMillis);  
   renderNixies(&buffer);
@@ -441,6 +441,5 @@ void loop() {
   }
 
   buffer.pushSprite(0, 0);
-  tft.dmaWait(); // Wait for DMA to complete before next frame
   prevMillis = now;
 }
