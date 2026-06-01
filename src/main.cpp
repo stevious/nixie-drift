@@ -1,6 +1,9 @@
 #include <Arduino.h>
 #include <TFT_eSPI.h>
 #include <vector>
+#include <iostream>
+#include <tuple>
+#include <string>
 
 #include "nixie_small.h"
 
@@ -65,9 +68,14 @@ struct TerminalMarqueeState {
   bool waitingForLineDelay = false; // Currently waiting before showing next line
 } terminalMarquee;
 
+struct NixieState {
+  char digits[4];
+} nixieState;
+
 Star* stars = nullptr;
 
 uint32_t prevMillis = 0;
+bool b0rked = false; // A flag to indicate if something went very wrong during setup (like failing to allocate the sprite buffer). If this is true, the loop will skip all rendering to avoid unexpected behavior.
 
 TFT_eSPI tft = TFT_eSPI();
 TFT_eSprite buffer = TFT_eSprite(&tft);
@@ -75,14 +83,6 @@ TFT_eSprite nixieSpriteTemplate = TFT_eSprite(&tft);
 TFT_eSprite nixieSprites[4] = { TFT_eSprite(&tft), TFT_eSprite(&tft), TFT_eSprite(&tft), TFT_eSprite(&tft) };
 
 // -- HELPER FUNCTIONS --
-
-void log(const char* message, uint16_t textColor, uint16_t textSize) {
-  tft.setTextColor(textColor);
-  tft.setTextSize(textSize);
-
-  tft.println(message);
-  Serial.println(message);
-}
 
 void drawGlowingString(TFT_eSprite* buffer, const String& text, int16_t x, int16_t y, uint16_t textColor, uint16_t glowColor, uint16_t glowStrength) {  
   // Be sure to set the appropriate font and text size on the buffer before calling this function.
@@ -170,47 +170,64 @@ void resetStar(uint16_t index, bool init) {
   stars[index].prev_sy = 0;
 }
 
-void setupBuffer() {
-  tft.printf("Provisioning 8-bit display buffer... ");
+std::tuple<bool, String> setupBuffer() {
+  bool result = true;
+  String message = "";
+
   buffer.setColorDepth(8);
-  if(buffer.createSprite(displayConfig.WIDTH, displayConfig.HEIGHT) == nullptr) {
-    tft.printf("failed!\n");
-    exit(-1); // Epic fail! Time to die...
-  } else {
-    tft.printf("success!\n");   
-  }
+  if(buffer.createSprite(displayConfig.WIDTH, displayConfig.HEIGHT) == nullptr) {        
+    result = false;
+    b0rked = true;
+  } 
+  return {result, message};
 }
 
-void setupNixieSprites() {
+std::tuple<bool, String> setupNixieSpriteTemplate() {
+  bool result = true;
+  String message = "";
+  
   nixieSpriteTemplate.setColorDepth(16);
-  if(nixieSpriteTemplate.createSprite(NIXIE_SMALL_WIDTH, NIXIE_SMALL_HEIGHT) == nullptr) {
-    tft.printf("Failed to create nixie sprite template!\n");
-    exit(-1); // Epic fail! Time to die...
+  if(nixieSpriteTemplate.createSprite(NIXIE_SMALL_WIDTH, NIXIE_SMALL_HEIGHT) == nullptr) {    
+    result = false;
+    b0rked = true;    
   }
   else {
-    nixieSpriteTemplate.pushImage(0, 0, NIXIE_SMALL_WIDTH, NIXIE_SMALL_HEIGHT, nixie_small);
-    tft.printf("Nixie sprite template created successfully!\n");
+    nixieSpriteTemplate.pushImage(0, 0, NIXIE_SMALL_WIDTH, NIXIE_SMALL_HEIGHT, nixie_small);    
   }
-
-  for(int i = 0; i < 4; ++i) {
-    nixieSprites[i].setColorDepth(16);
-    if(nixieSprites[i].createSprite(NIXIE_SMALL_WIDTH, NIXIE_SMALL_HEIGHT) == nullptr) {
-      tft.printf("Failed to create nixie sprite %d!\n", i);
-      exit(-1); // Epic fail! Time to die...
-    }
-    else {
-      tft.printf("Nixie sprite %d created successfully!\n", i);
-    }
-  }
+  return {result, message};
 }
 
-void setupStars() {
-  tft.printf("Generating stars...");
+std::tuple<bool, String> setupNixieSprites() {
+  bool result = true;
+  String message = "";
+
+  for(int i = 0; i < 4; ++i) {
+    nixieSprites[i].setColorDepth(16);    
+    if(nixieSprites[i].createSprite(NIXIE_SMALL_WIDTH, NIXIE_SMALL_HEIGHT) == nullptr) {
+      result = false;
+      b0rked = true;
+      message = "(nixie: " + String(i) + ")"; // Indicate which sprite failed to create in the message      
+      break; // No need to attempt to create further sprites if one has already failed, as we are in a b0rked state at this point.
+    }
+  }
+  return {result, message};
+}
+
+std::tuple<bool, String> setupStars() {
+  bool result = true;
+  String message = "";
+  
   randomSeed(micros()); // Randomize the seed
   stars = new Star[starConfig.STAR_COUNT];
-  for (int i = 0; i < starConfig.STAR_COUNT; ++i) {
-    resetStar(i, true);
+  if (stars != nullptr) {
+    for (int i = 0; i < starConfig.STAR_COUNT; ++i) {
+      resetStar(i, true);
+    }
+  } else {
+    result = false;
+    b0rked = true;
   }
+  return {result, message};
 }
 
 // -- LOOP FUNCTIONS --
@@ -254,28 +271,34 @@ void renderNixie(TFT_eSprite* buffer, uint16_t nixie_number, uint16_t x, uint16_
   nixieSprites[nixie_number].pushToSprite(buffer, x, y);
 }
 
-void prerenderNixie(TFT_eSprite* buffer, const char* value) {
+void updateNixie(TFT_eSprite* buffer, const char digit) {
+  buffer->fillSprite(TFT_BLACK);
+
   buffer->setTextFont(8); // Font 8 is a built in 16x32 pixel font that fits nicely within the nixie sprite.
   buffer->setTextSize(1);
 
-  const uint16_t text_x_offset = (NIXIE_SMALL_WIDTH - buffer->textWidth(value)) / 2; // Center the text within the sprite
+  String digitStr(digit);
+
+  const uint16_t text_x_offset = (NIXIE_SMALL_WIDTH - buffer->textWidth(digitStr)) / 2; // Center the text within the sprite
   const uint16_t text_y_offset = 44; // Manually measured this from nixie_small.png
 
   // Write the text into the sprite
-  drawGlowingString(buffer, value, text_x_offset, text_y_offset, tft.color565(255, 120, 0), tft.color565(128, 0, 0), 5);
+  drawGlowingString(buffer, digitStr, text_x_offset, text_y_offset, tft.color565(255, 120, 0), tft.color565(128, 0, 0), 5);
   
   // -- Draw the nixie image to the sprite --
   nixieSpriteTemplate.pushToSprite(buffer, 0, 0, TFT_BLACK); // Draw the nixie outline, using black as the transparent colour key  
 }
 
-void prerenderNixies(const char* value1, const char* value2, const char* value3, const char* value4) {
-  prerenderNixie(&nixieSprites[0], value1);
-  prerenderNixie(&nixieSprites[1], value2);
-  prerenderNixie(&nixieSprites[2], value3);
-  prerenderNixie(&nixieSprites[3], value4);
+void updateNixies(const char digits[4], bool force_update = false) {
+  // Only render nixies that have changed digit values.
+  for(uint16_t i = 0; i < 4; ++i) {
+    if (force_update || (digits[i] != nixieState.digits[i])) {
+      updateNixie(&nixieSprites[i], digits[i]);
+      nixieState.digits[i] = digits[i];      
+    }    
+  }         
 }
 
-// TODO: Refactor renderNixies to take a time struct and render the appropriate numbers.
 void renderNixies(TFT_eSprite* buffer) {
   const uint16_t y_offset = 20;
   renderNixie(buffer, 0, 0, y_offset);
@@ -453,35 +476,78 @@ void renderColon(TFT_eSprite* buffer, float elapsedMillis) {
   buffer->fillEllipse(160, y2, 5, 5, tft.color565(glow, glow, glow));
 }
 
+void log(String message, uint16_t textFont = 1, uint16_t textSize = 1, uint16_t textColor = TFT_WHITE, uint16_t margin = 10) {
+  tft.setTextFont(textFont);
+  tft.setTextColor(textColor);
+  tft.setTextSize(textSize);
+  tft.setCursor(margin, tft.getCursorY());
+
+  tft.println(message); 
+}
+
+void status(bool status, String message, uint16_t margin = 10) {
+  tft.setTextFont(1);
+  tft.setTextSize(1);
+  tft.setCursor(margin, tft.getCursorY());
+
+  tft.setTextColor(TFT_WHITE);
+  tft.print("[");
+  tft.setTextColor(status ? TFT_GREEN : TFT_RED);
+  tft.print(status ? "OK" : "FAIL");
+  tft.setTextColor(TFT_WHITE);
+  tft.println("] - " + message);  
+}
+
 // -- Arduino setup and loop --
 void setup() {
   Serial.begin(115200);
-
   tft.init();
   tft.setRotation(1); // Landscape mode  
   tft.fillScreen(TFT_BLACK);
-  
-  tft.setCursor(0, 10);
-  tft.printf("Nixie Drift v%s by Stevious is booting.\n\n", VERSION);
-  tft.printf("ESP-IDF Version: %s\n", esp_get_idf_version());
-  
-  setupBuffer();
-  setupNixieSprites();
-  prerenderNixies("1", "2", "3", "4"); 
-  setupStars();
+    
+  log("Nixie Drift v" + String(VERSION), 2, 2, TFT_GREEN, 10);
+  log("by Stevious (www.localgoat.xyz)", 2, 1, TFT_GREEN, 10);
+  log("");
+  log("ESP-IDF Version: " + String(esp_get_idf_version()), 1, 1, TFT_WHITE, 10);
+  log("");
 
+  if(!b0rked) {
+    auto [result, message] = setupBuffer();
+    status(result, "Provision display buffer. " + message);
+  }
+
+  if(!b0rked) {
+    auto [result, message] = setupNixieSpriteTemplate();
+    status(result, "Provision nixie sprite template. " + message);
+  }
+
+  if(!b0rked) {
+    auto [result, message] = setupNixieSprites();
+    status(result, "Provision nixie sprites. " + message);
+  }
+ 
+  if(!b0rked) {
+    auto [result, message] = setupStars();
+    status(result, "Provision and reset stars. " + message);
+  }  
+
+  if(!b0rked) {
+    updateNixies((const char[]){'0', '0', '0', '0'}, true); // Force update all nixies to the initial '0' state
+    status(true, "Render initial nixie digits.");
+  }
   scrollingMarquee.x = displayConfig.WIDTH; // Start marquee off-screen to the right
   
   // Initialize terminal marquee with example text
   initializeTerminalMarquee(" Welcome to Nixie Drift - a retro-futuristic time keeping device by Stevious. Enjoy the cosmic journey through time and space!");
 
-  // Setup Complete
-  log("Setup complete!", TFT_WHITE, 1);
-
   prevMillis = millis(); // Initialize prevMillis after setup is complete to avoid a huge elapsed time on the first loop iteration.
 }
 
 void loop() {  
+  if(b0rked) {
+    return; // If something went very wrong during setup, skip all rendering to avoid unexpected behavior.
+  }
+
   ++fpsTracking.frameCount;
   uint32_t now = millis();
   float elapsedMillis = now - prevMillis; // Time delta in milliseconds since last frame
