@@ -76,6 +76,14 @@ TFT_eSprite nixieSprites[4] = { TFT_eSprite(&tft), TFT_eSprite(&tft), TFT_eSprit
 
 // -- HELPER FUNCTIONS --
 
+void log(const char* message, uint16_t textColor, uint16_t textSize) {
+  tft.setTextColor(textColor);
+  tft.setTextSize(textSize);
+
+  tft.println(message);
+  Serial.println(message);
+}
+
 void drawGlowingString(TFT_eSprite* buffer, const String& text, int16_t x, int16_t y, uint16_t textColor, uint16_t glowColor, uint16_t glowStrength) {  
   // Be sure to set the appropriate font and text size on the buffer before calling this function.
   // Draw glow layers
@@ -307,8 +315,7 @@ void renderScrollingMarquee(TFT_eSprite* buffer, const float elapsedMillis) {
 
 void renderTerminalMarquee(TFT_eSprite* buffer, const uint32_t now) {
   // Set the text defaults
-  // buffer->setTextFont(1);
-  buffer->setFreeFont(&FreeMono9pt7b); // This is a nice monospaced font that fits the retro terminal aesthetic. It's a bit more expensive to render than the built in fonts, but it is worth it for the look.
+  buffer->setFreeFont(&FreeMono9pt7b); // Adafruit GFXFF font. Change if RAM gets tight.
   buffer->setTextSize(1);
   
   // Static cache for wrapped lines (recalculate only when text changes)
@@ -319,10 +326,10 @@ void renderTerminalMarquee(TFT_eSprite* buffer, const uint32_t now) {
   const uint16_t terminalTextGlowColor = tft.color565(0, 100, 0);
   const uint16_t displayWidth = 310;  // Leave some margin (need to park the cursor somewhere!)
 
-  const uint16_t terminalY = displayConfig.HEIGHT - tft.fontHeight() - 8;
+  const uint16_t terminalY = displayConfig.HEIGHT - tft.fontHeight() - 24;
   
     // Dynamically calculate cursor size based on font metrics.
-  const uint16_t blockCursorWidth = buffer->textWidth("M"); // Mmmmmm, m-dash! <.<
+  const uint16_t blockCursorWidth = buffer->textWidth("M"); // Mmmmmm, mmmmm m-dash! <.<
   const uint16_t blockCursorHeight = buffer->fontHeight();
 
   // Recalculate line wrapping if text changed
@@ -364,7 +371,7 @@ void renderTerminalMarquee(TFT_eSprite* buffer, const uint32_t now) {
       // Still waiting, draw complete line      
       drawGlowingString(buffer, terminalMarquee.currentLine, 5, terminalY, terminalTextColor, terminalTextGlowColor, 1);      
 
-      // -- Draw blinking cursor (note the duplication of this below) --
+      // -- Draw blinking cursor (note to self: duplication of this below for end-of-line situation) --
       if (terminalMarquee.cursorVisible) {
         uint16_t cursorX = 5 + buffer->textWidth(terminalMarquee.currentLine.c_str());
         buffer->fillRect(cursorX, terminalY, blockCursorWidth, blockCursorHeight, tft.color565(0, 200, 0));
@@ -418,15 +425,38 @@ void renderColon(TFT_eSprite* buffer, float elapsedMillis) {
     }
   }
   
+  // The y values for the colon dots etc.
+  const uint16_t y1 = 90;
+  const uint16_t y2 = 110;
+
+  // Draw a couple of horizontal lines between the middle nixies to hold the colon dots. They just can't be left floating there without some kind of support, can they?
+  buffer->drawFastHLine(145, y1 - 1, 30, tft.color565(210, 136, 3));
+  buffer->drawFastHLine(145, y1, 30, tft.color565(210, 136, 3));
+  buffer->drawFastHLine(145, y1 + 1, 30, tft.color565(210, 136, 3));
+  
+  buffer->drawFastHLine(145, y2 - 1, 30, tft.color565(210, 136, 3));
+  buffer->drawFastHLine(145, y2, 30, tft.color565(210, 136, 3));
+  buffer->drawFastHLine(145, y2 + 1, 30, tft.color565(210, 136, 3));
+  
   uint8_t glow = static_cast<uint8_t>(colonState.value);
 
   // Draw the two dots of the colon
-  buffer->fillEllipse(160, 90, 5, 5, tft.color565(glow, glow, glow));
-  buffer->fillEllipse(160, 110, 5, 5, tft.color565(glow, glow, glow));
+  buffer->drawEllipse(160, y1, 6, 6, tft.color565(210, 136, 3));
+  buffer->drawEllipse(160, y1, 7, 7, tft.color565(210, 136, 3));
+  buffer->drawEllipse(160, y1, 8, 8, tft.color565(210, 136, 3));
+
+  buffer->drawEllipse(160, y2, 6, 6, tft.color565(210, 136, 3));
+  buffer->drawEllipse(160, y2, 7, 7, tft.color565(210, 136, 3));
+  buffer->drawEllipse(160, y2, 8, 8, tft.color565(210, 136, 3));
+
+  buffer->fillEllipse(160, y1, 5, 5, tft.color565(glow, glow, glow));
+  buffer->fillEllipse(160, y2, 5, 5, tft.color565(glow, glow, glow));
 }
 
 // -- Arduino setup and loop --
 void setup() {
+  Serial.begin(115200);
+
   tft.init();
   tft.setRotation(1); // Landscape mode  
   tft.fillScreen(TFT_BLACK);
@@ -444,6 +474,11 @@ void setup() {
   
   // Initialize terminal marquee with example text
   initializeTerminalMarquee(" Welcome to Nixie Drift - a retro-futuristic time keeping device by Stevious. Enjoy the cosmic journey through time and space!");
+
+  // Setup Complete
+  log("Setup complete!", TFT_WHITE, 1);
+
+  prevMillis = millis(); // Initialize prevMillis after setup is complete to avoid a huge elapsed time on the first loop iteration.
 }
 
 void loop() {  
@@ -456,7 +491,7 @@ void loop() {
   renderStars(&buffer, elapsedMillis);  
   renderNixies(&buffer);
   renderColon(&buffer, elapsedMillis); // Sounds rather painful :(
-  // renderTerminalMarquee(&buffer, now);
+  renderTerminalMarquee(&buffer, now);
   renderScrollingMarquee(&buffer, elapsedMillis);
 
   // Update FPS every second
