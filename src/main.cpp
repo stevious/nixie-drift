@@ -1,14 +1,22 @@
-#include <Arduino.h>
-#include <TFT_eSPI.h>
 #include <vector>
 #include <iostream>
 #include <tuple>
 #include <string>
+#include <Arduino.h>
+#include <TFT_eSPI.h>
+#include <XPT2046_Touchscreen.h>
 
 #include "nixie_small.h"
 
 // Version
 const char* VERSION = "0.1.0";
+
+// Touchscreen pins
+#define TS_CS 33
+#define TS_IRQ 36
+#define TS_CLK 25
+#define TS_DIN 32
+#define TS_DOUT 39
 
 // Display configuration
 struct DisplayConfiguration {
@@ -76,6 +84,8 @@ Star* stars = nullptr;
 
 uint32_t prevMillis = 0;
 bool b0rked = false; // A flag to indicate if something went very wrong during setup (like failing to allocate the sprite buffer). If this is true, the loop will skip all rendering to avoid unexpected behavior.
+
+XPT2046_Touchscreen ts( TS_CS, TS_IRQ );
 
 TFT_eSPI tft = TFT_eSPI();
 TFT_eSprite buffer = TFT_eSprite(&tft);
@@ -501,14 +511,20 @@ void status(bool status, String message, uint16_t margin = 10) {
 // -- Arduino setup and loop --
 void setup() {
   Serial.begin(115200);
+
   tft.init();
   tft.setRotation(1); // Landscape mode  
   tft.fillScreen(TFT_BLACK);
-    
+ 
+  SPI.begin(TS_CLK, TS_DOUT, TS_DIN);
+  ts.begin();
+  ts.setRotation( 1 );
+
   log("Nixie Drift v" + String(VERSION), 2, 2, TFT_GREEN, 10);
   log("by Stevious (www.localgoat.xyz)", 2, 1, TFT_GREEN, 10);
   log("");
   log("ESP-IDF Version: " + String(esp_get_idf_version()), 1, 1, TFT_WHITE, 10);
+  
   log("");
 
   if(!b0rked) {
@@ -540,7 +556,7 @@ void setup() {
   // Initialize terminal marquee with example text
   initializeTerminalMarquee(" Welcome to Nixie Drift - a retro-futuristic time keeping device by Stevious. Enjoy the cosmic journey through time and space!");
 
-  prevMillis = millis(); // Initialize prevMillis after setup is complete to avoid a huge elapsed time on the first loop iteration.
+  prevMillis = millis(); // Initialize prevMillis after setup is complete to avoid a huge elapsed time on the first loop iteration. 
 }
 
 void loop() {  
@@ -572,6 +588,10 @@ void loop() {
 
   // -- Push the buffer to the display --
   buffer.pushSprite(0, 0);
+
+  if(ts.tirqTouched() && ts.touched()) {
+    Serial.println("Touched at: " + String(ts.getPoint().x) + ", " + String(ts.getPoint().y));
+  }
 
   prevMillis = now;
 }
