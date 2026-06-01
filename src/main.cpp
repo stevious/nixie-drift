@@ -5,18 +5,12 @@
 #include <Arduino.h>
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
+#include <lvgl.h>
 
 #include "nixie_small.h"
 
 // Version
 const char* VERSION = "0.1.0";
-
-// Touchscreen pins
-#define TS_CS 33
-#define TS_IRQ 36
-#define TS_CLK 25
-#define TS_DIN 32
-#define TS_DOUT 39
 
 // Display configuration
 struct DisplayConfiguration {
@@ -85,7 +79,7 @@ Star* stars = nullptr;
 uint32_t prevMillis = 0;
 bool b0rked = false; // A flag to indicate if something went very wrong during setup (like failing to allocate the sprite buffer). If this is true, the loop will skip all rendering to avoid unexpected behavior.
 
-XPT2046_Touchscreen ts( TS_CS, TS_IRQ );
+XPT2046_Touchscreen ts( TOUCH_CS, TOUCH_IRQ );
 
 TFT_eSPI tft = TFT_eSPI();
 TFT_eSprite buffer = TFT_eSprite(&tft);
@@ -486,8 +480,13 @@ void renderColon(TFT_eSprite* buffer, float elapsedMillis) {
   buffer->fillEllipse(160, y2, 5, 5, tft.color565(glow, glow, glow));
 }
 
-void log(String message, uint16_t textFont = 1, uint16_t textSize = 1, uint16_t textColor = TFT_WHITE, uint16_t margin = 10) {
-  tft.setTextFont(textFont);
+void log(String message, const GFXfont* freeFont = nullptr, uint16_t textFont = 1, uint16_t textSize = 1, uint16_t textColor = TFT_WHITE, uint16_t margin = 10) {
+  if (freeFont != nullptr) {
+    tft.setFreeFont(freeFont);
+  } else {
+    tft.setFreeFont();
+    tft.setTextFont(textFont);
+  }    
   tft.setTextColor(textColor);
   tft.setTextSize(textSize);
   tft.setCursor(margin, tft.getCursorY());
@@ -516,15 +515,24 @@ void setup() {
   tft.setRotation(1); // Landscape mode  
   tft.fillScreen(TFT_BLACK);
  
-  SPI.begin(TS_CLK, TS_DOUT, TS_DIN);
+  SPI.begin(TOUCH_CLK, TOUCH_MOSI, TOUCH_MISO);
   ts.begin();
   ts.setRotation( 1 );
 
-  log("Nixie Drift v" + String(VERSION), 2, 2, TFT_GREEN, 10);
-  log("by Stevious (www.localgoat.xyz)", 2, 1, TFT_GREEN, 10);
+  log("Nixie Drift v" + String(VERSION), nullptr, 2, 2, TFT_GREEN, 10);
+  log("by Stevious (www.localgoat.xyz)", nullptr, 2, 1, TFT_GREEN, 10);
   log("");
-  log("ESP-IDF Version: " + String(esp_get_idf_version()), 1, 1, TFT_WHITE, 10);
-  
+  log("CPU Type:              " + String(ESP.getChipModel()), nullptr, 1, 1, TFT_WHITE, 10);  
+  log("CPU Speed:             " + String(ESP.getCpuFreqMHz()) + " MHz", nullptr, 1, 1, TFT_WHITE, 10);
+  log("");
+  log("ESP-IDF Version:       " + String(esp_get_idf_version()), nullptr, 1, 1, TFT_WHITE, 10);
+  log("Arduino Core Version:  " + String(ESP_ARDUINO_VERSION_STR), nullptr,1, 1, TFT_WHITE, 10);
+  log("TFT_ESPI Version:      " + String(TFT_ESPI_VERSION), nullptr, 1, 1, TFT_WHITE, 10);
+  log("LVGL Version:          " + String(LVGL_VERSION_MAJOR) + "." + String(LVGL_VERSION_MINOR) + "." + String(LVGL_VERSION_PATCH), nullptr, 1, 1, TFT_WHITE, 10);  
+  log("");
+
+  log("Before setup:", nullptr, 1, 1, TFT_GOLD, 10);
+  log("Heap Max / Total:      " + String(ESP.getMaxAllocHeap()) + " / " + String(ESP.getFreeHeap()) + " bytes", nullptr, 1, 1, TFT_YELLOW, 10);  
   log("");
 
   if(!b0rked) {
@@ -555,6 +563,12 @@ void setup() {
   
   // Initialize terminal marquee with example text
   initializeTerminalMarquee(" Welcome to Nixie Drift - a retro-futuristic time keeping device by Stevious. Enjoy the cosmic journey through time and space!");
+
+  log("");
+  log("After setup:", nullptr, 1, 1, TFT_GOLD, 10);
+  log("Heap Max / Total:      " + String(ESP.getMaxAllocHeap()) + " / " + String(ESP.getFreeHeap()) + " bytes", nullptr, 1, 1, TFT_YELLOW, 10);  
+ 
+  delay(3000); // Pause for 2 seconds to let the user read the status messages before starting the main loop
 
   prevMillis = millis(); // Initialize prevMillis after setup is complete to avoid a huge elapsed time on the first loop iteration. 
 }
