@@ -3,10 +3,10 @@
 #include <tuple>
 #include <string>
 #include <Arduino.h>
+#include <SPI.h>
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
 #include <lvgl.h>
-
 #include "nixie_small.h"
 
 // Version
@@ -78,8 +78,6 @@ Star* stars = nullptr;
 
 uint32_t prevMillis = 0;
 bool b0rked = false; // A flag to indicate if something went very wrong during setup (like failing to allocate the sprite buffer). If this is true, the loop will skip all rendering to avoid unexpected behavior.
-
-XPT2046_Touchscreen ts( TOUCH_CS, TOUCH_IRQ );
 
 TFT_eSPI tft = TFT_eSPI();
 TFT_eSprite buffer = TFT_eSprite(&tft);
@@ -514,10 +512,6 @@ void setup() {
   tft.init();
   tft.setRotation(1); // Landscape mode  
   tft.fillScreen(TFT_BLACK);
- 
-  SPI.begin(TOUCH_CLK, TOUCH_MOSI, TOUCH_MISO);
-  ts.begin();
-  ts.setRotation( 1 );
 
   log("Nixie Drift v" + String(VERSION), nullptr, 2, 2, TFT_GREEN, 10);
   log("by Stevious (www.localgoat.xyz)", nullptr, 2, 1, TFT_GREEN, 10);
@@ -528,7 +522,7 @@ void setup() {
   log("ESP-IDF Version:       " + String(esp_get_idf_version()), nullptr, 1, 1, TFT_WHITE, 10);
   log("Arduino Core Version:  " + String(ESP_ARDUINO_VERSION_STR), nullptr,1, 1, TFT_WHITE, 10);
   log("TFT_ESPI Version:      " + String(TFT_ESPI_VERSION), nullptr, 1, 1, TFT_WHITE, 10);
-  log("LVGL Version:          " + String(LVGL_VERSION_MAJOR) + "." + String(LVGL_VERSION_MINOR) + "." + String(LVGL_VERSION_PATCH), nullptr, 1, 1, TFT_WHITE, 10);  
+  // log("LVGL Version:          " + String(LVGL_VERSION_MAJOR) + "." + String(LVGL_VERSION_MINOR) + "." + String(LVGL_VERSION_PATCH), nullptr, 1, 1, TFT_WHITE, 10);  
   log("");
 
   log("Before setup:", nullptr, 1, 1, TFT_GOLD, 10);
@@ -567,21 +561,13 @@ void setup() {
   log("");
   log("After setup:", nullptr, 1, 1, TFT_GOLD, 10);
   log("Heap Max / Total:      " + String(ESP.getMaxAllocHeap()) + " / " + String(ESP.getFreeHeap()) + " bytes", nullptr, 1, 1, TFT_YELLOW, 10);  
- 
+
   delay(3000); // Pause for 2 seconds to let the user read the status messages before starting the main loop
 
   prevMillis = millis(); // Initialize prevMillis after setup is complete to avoid a huge elapsed time on the first loop iteration. 
 }
 
-void loop() {  
-  if(b0rked) {
-    return; // If something went very wrong during setup, skip all rendering to avoid unexpected behavior.
-  }
-
-  ++fpsTracking.frameCount;
-  uint32_t now = millis();
-  float elapsedMillis = now - prevMillis; // Time delta in milliseconds since last frame
-
+void renderNixiesInSpace(TFT_eSprite &buffer, uint32_t now, float elapsedMillis) {
   // -- Render everything to the buffer sprite --
   buffer.fillSprite(TFT_BLACK);
   renderStars(&buffer, elapsedMillis);  
@@ -602,10 +588,18 @@ void loop() {
 
   // -- Push the buffer to the display --
   buffer.pushSprite(0, 0);
+}
 
-  if(ts.tirqTouched() && ts.touched()) {
-    Serial.println("Touched at: " + String(ts.getPoint().x) + ", " + String(ts.getPoint().y));
+void loop() {  
+  if(b0rked) {
+    return; // If something went very wrong during setup, skip all rendering to avoid unexpected behavior.
   }
+
+  ++fpsTracking.frameCount;
+  uint32_t now = millis();
+  float elapsedMillis = now - prevMillis; // Time delta in milliseconds since last frame
+
+  renderNixiesInSpace(buffer, now, elapsedMillis);
 
   prevMillis = now;
 }
