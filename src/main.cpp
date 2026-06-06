@@ -220,7 +220,7 @@ std::tuple<bool, String> setupStars() {
   String message = "";
   
   randomSeed(micros()); // Randomize the seed
-  stars = new Star[starConfig.STAR_COUNT];
+  stars = new (std::nothrow) Star[starConfig.STAR_COUNT];
   if (stars != nullptr) {
     for (int i = 0; i < starConfig.STAR_COUNT; ++i) {
       resetStar(i, true);
@@ -351,7 +351,7 @@ void renderTerminalMarquee(TFT_eSprite* buffer, const uint32_t now) {
   const uint16_t terminalTextGlowColor = tft.color565(0, 100, 0);
   const uint16_t displayWidth = 310;  // Leave some margin (need to park the cursor somewhere!)
 
-  const uint16_t terminalY = displayConfig.HEIGHT - tft.fontHeight() - 24;
+  const uint16_t terminalY = displayConfig.HEIGHT - buffer->fontHeight() - 24;
   
     // Dynamically calculate cursor size based on font metrics.
   const uint16_t blockCursorWidth = buffer->textWidth("M"); // Mmmmmm, mmmmm m-dash! <.<
